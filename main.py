@@ -5,15 +5,15 @@ N=100
 EARTH_RADIUS = 6.371*1e6 #radius in meters
 THEIA_RADIUS = 3.05*1e6
 EARTH_MASS = 5.972*1e24 #mass in kg
-THEIA_MASS = 6.417*1e23
+THEIA_MASS = 6.417*1e24
 
 G = 6.673*1e-11 #gravitational constant
 REPULSIVE_G = -10*G #used when a sphere is inside another to ensure they don't get stuck
-FUSION_DAMPING = 0.999#Ratio of speed lost when particles fusion
-DAMPING_COLLISION_DETECT = 20 #Number of times the acceleration before we use damping
+FUSION_DAMPING = 10#Ratio of speed lost when particles fusion
+DAMPING_COLLISION_DETECT = 3500 #Number of times the acceleration before we use damping
 BALL_RADIUS = None
 DAMPING_REDUCTION = 1e6
-REPULSIVE_ACCEL = -500
+REPULSIVE_ACCEL = -100
 
 positions=[]
 masses=[]
@@ -52,111 +52,44 @@ def appendNPArrayVectors(arr1, arr2):
     newArray[len(arr1):, :]=arr2
     return newArray
 
-earthPositions, earthMasses, earthSpeeds, BALL_RADIUS = getPlanet(EARTH_RADIUS, 30, EARTH_MASS, 0.74, 0, [0, 0, 0], [0, 0, 0])
+def pairInteraction(pos1, pos2, speed1, speed2, m1, m2, dt):
 
-nBallsTheia = int(THEIA_MASS/earthMasses[0])
-
-theiaPositions, theiaMasses, theiaSpeeds, BALL_RADIUS = getPlanet(THEIA_RADIUS, nBallsTheia, THEIA_MASS, 0.74, 0, [-9*EARTH_RADIUS, 0, 0], [0, 0, 0])
-
-positions = earthPositions
-masses = earthMasses
-speeds = earthSpeeds
-
-positions = appendNPArrayVectors(positions, theiaPositions)
-masses = appendNPArray(masses, theiaMasses)
-speeds = appendNPArrayVectors(speeds, theiaSpeeds)
-
-
-def checkCollisions(pos1, speed1, positions, speeds, distances):
-
-    for j, dist in enumerate(distances):
-        
-        if dist<2*BALL_RADIUS and dist!=0:
-
+    distance = pos2-pos1
+    normDistance = np.linalg.norm(distance)
+    normal1 = (distance)/normDistance
+    damping = 1
+    relativeSpeedNorm = np.linalg.norm(speed2-speed1)
+    if normDistance > 2*BALL_RADIUS:
+        g2 = G*m1/(normDistance**2)
+        g1=g2*(m2/m1)
+    else:
+        g1=REPULSIVE_ACCEL
+        g2=g1
+        if relativeSpeedNorm > DAMPING_COLLISION_DETECT:
+            damping=FUSION_DAMPING
     
-
-            #ADD A CHECK TO AVOID DOUBLE REVERSAL/UNNECCESSARY ONES
-
-            pos2 = positions[j]
-            speed2 = speeds[j]
-
-            check1 = np.dot(speed1, speed2)
-            normal1 = (pos2-pos1)/np.linalg.norm(pos2-pos1)
-            normal2 = -normal1
-            checkSpeed1 = np.dot(speed1, normal1)
-            checkSpeed2 = np.dot(speed2, normal2)
-
-            addSpeed1 = checkSpeed1*normal1
-            addSpeed2 = checkSpeed2*normal2
-
-
-            if check1 < 0 and checkSpeed1 < 0:
-                return None, None, None, False
-
-            speedDiff = speed2-speed1
-            speedNorm = np.linalg.norm(speedDiff)
-
-            
-
-            damp = np.max([0.9 ,np.exp(-speedNorm/DAMPING_REDUCTION)])
-            
-
-            normal = distances[j]/np.linalg.norm(distances[j])
-            #correctionVector1 = normal*np.dot(normal, speed1)
-            #correctionVector2 = -normal*np.dot(-normal, speed2)
-            
-            #THIS IS TEMPORARY!! CAN NOT BE PARALELISED IN THIS FORM
-
-            speed1 -= addSpeed1
-            speed1 += addSpeed2
-            speed2 += addSpeed1
-            speed2 -=addSpeed2
-            speed1 = damp*speed1
-            speed2 = damp*speed2
-
-            return speed1, speed2, j, True
-    
-    return None, None, None, False
-
-        
+    speed1 += dt*g1*(normal1)
+    speed2 += dt*g2*(-normal1)
+    print(damping)
+    speed1*=damping
+    speed2*=damping
+    pos1 += speed1*dt
+    pos2 += speed2*dt
+    return pos1, pos2, speed1, speed2
 
 
 def iteration(positions, speeds, masses, dt):
 
-    mask = np.ones(len(positions), dtype=np.bool)
-    for i, pos in enumerate(positions):
-        mask[i-1]=1
+    mask=np.ones(len(positions))
+
+    for i in range(len(positions)):
         mask[i]=0
-        directions = positions-pos
-        distances = np.linalg.norm(directions, axis=1)
+        for j in range(len(positions)):
+            if mask[j]!=0:
 
-        #speed1, speed2, index, hasCollide = checkCollisions(pos, speeds[i], positions, speeds, distances)
-
-        #recoil = np.where(distances>BALL_RADIUS, 1, -REPULSIVE_G)[mask]
-        #distances = np.where(distances>BALL_RADIUS, distances, BALL_RADIUS)
-
-        maskedMasses = masses[mask]
-        maskedDistances = distances[mask]
-        #gees = np.where(maskedDistances > BALL_RADIUS*2, G*((maskedMasses)/maskedDistances**2), REPULSIVE_G*((maskedMasses)/maskedDistances**2) )
-        gees = np.where(maskedDistances > BALL_RADIUS*2, G*((maskedMasses)/maskedDistances**2), REPULSIVE_ACCEL )
-        damping=1
-        if np.any(distances[mask] < BALL_RADIUS*2):
-            damping = FUSION_DAMPING
-
-        #gees = G*((masses[mask])/distances[mask]**2)
-        directionVector = directions[mask]/distances[mask].reshape(len(directions[mask]), 1)
-        directionGees = gees.reshape(len(directions[mask]), 1)*directionVector
-        g = np.sum(directionGees, axis=0)
-
-        #(pos1, speed1, positions, speeds, distances, normG)#
-
-        #if hasCollide:
-        #    speeds[i] = speed1
-        #    speeds[index] = speed2
-
-        speeds[i] += g*dt
-        speeds[i]*=damping
-        positions[i] += speeds[i]*dt + (dt**2)*g/2
+                positions[i], positions[j], speeds[i], speeds[j] = \
+                    pairInteraction(positions[i], positions[j], speeds[i], speeds[j], masses[i], masses[j], dt)
+                
 
         
 
@@ -219,12 +152,41 @@ C.pack()
 #speeds[1, 0]=-3000
 
 
+earthPositions, earthMasses, earthSpeeds, BALL_RADIUS = getPlanet(EARTH_RADIUS, 10, EARTH_MASS, 0.74, 0, [0, 0, 0], [0, 0, 0])
+
+nBallsTheia = int(THEIA_MASS/earthMasses[0])
+
+theiaPositions, theiaMasses, theiaSpeeds, BALL_RADIUS = getPlanet(THEIA_RADIUS, nBallsTheia, THEIA_MASS, 0.74, 0, [-9*EARTH_RADIUS, 0, 0], [0, 0, 0])
+
+FUSION_DAMPING=0.02
+
+counter=0
+
+while counter<1000:
+    counter+=1
+    drawBalls(earthPositions, earthSpeeds, C)
+    drawBalls(theiaPositions, theiaSpeeds, C)
+    top.update_idletasks()
+    top.update()
+    iteration(earthPositions, earthSpeeds, earthMasses, 1)
+    iteration(theiaPositions, theiaSpeeds, theiaMasses, 3)
+    C.delete("all")
+
+FUSION_DAMPING=0.98
+
+positions = earthPositions
+masses = earthMasses
+speeds = earthSpeeds
+
+positions = appendNPArrayVectors(positions, theiaPositions)
+masses = appendNPArray(masses, theiaMasses)
+speeds = appendNPArrayVectors(speeds, theiaSpeeds)
+
 while 1:
     drawBalls(positions, speeds, C)
     top.update_idletasks()
     top.update()
-    time.sleep(0.00001)
-    iteration(positions, speeds, masses, 0.3)
+    iteration(positions, speeds, masses, 0.1)
     C.delete("all")
 
 
