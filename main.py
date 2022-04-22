@@ -6,11 +6,12 @@ EARTH_RADIUS = 6.371*1e6 #radius in meters
 THEIA_RADIUS = 3.05*1e6
 EARTH_MASS = 5.972*1e24 #mass in kg
 THEIA_MASS = 6.417*1e23
+EARTH_DENSITY = EARTH_MASS/((4/3)*np.pi*EARTH_RADIUS**3)
 
 G = 6.673*1e-11 #gravitational constant
 REPULSIVE_G = -10*G #used when a sphere is inside another to ensure they don't get stuck
 DAMPING_REDUCTION = 1e35#Ratio of speed lost when particles fusion
-FUSION_POINT = 0 #If relative speed is inferior to that the 2 sphere fusion
+FUSION_POINT = 2000 #If relative speed is inferior to that the 2 sphere fusion
 REPULSIVE_ACCEL = -100
 
 def getPlanet(planetRadius, nBalls, planetMass, packingConstant, rotationSpeed, centerPoint, directionSpeed, ballRadius=None):
@@ -38,6 +39,32 @@ def getPlanet(planetRadius, nBalls, planetMass, packingConstant, rotationSpeed, 
     masses = np.zeros(nBalls)+ballMass
 
     radiuses = np.zeros(nBalls)+ballRadius
+
+    return positions, masses, speeds, radiuses
+
+def getRingedPlanet(bodyRadius, nBodies, bodyMass, ringMass, ringBodiesDensity, orbitingRadius):
+
+    positions = np.zeros([nBodies+1, 3])
+    speeds = np.zeros([nBodies+1, 3])
+    masses = np.zeros(nBodies+1)
+    radiuses = np.zeros(nBodies+1)
+
+    positions[0]=np.array([0, 0, 0])
+    masses[0]=bodyMass
+    radiuses[0] = bodyRadius
+
+    meanMass = ringMass / nBodies
+    masses[1:] = np.random.uniform(low=0.3*meanMass, high=1.7*meanMass, size = nBodies)
+    volumes = masses[1:]/ringBodiesDensity
+    radiuses[1:] = np.power(volumes/((4/3)*np.pi), 1/3)
+
+    distances = np.random.uniform(low=0.8*orbitingRadius, high=1.2*orbitingRadius, size=nBodies)
+    orbitalSpeeds = np.sqrt((G*bodyMass)/distances)
+    angles1 = np.random.uniform(low=0, high=2*np.pi, size=nBodies)
+    positions[1:, 0] = distances*np.cos(angles1)
+    positions[1:, 1] = distances*np.sin(angles1)
+    speeds[1:, 0] = orbitalSpeeds*np.sin(angles1)
+    speeds[1:, 1] = -orbitalSpeeds*np.cos(angles1)
 
     return positions, masses, speeds, radiuses
 
@@ -86,7 +113,7 @@ def fuseBalls(positions, speeds, masses, radiuses, i, j):
         newM = m1+m2
         newPos = (m1/(newM))*pos1 + (m2/(newM))*pos2
         newSpeed = (m1/(newM))*speed1 + (m2/(newM))*speed2
-        newR = np.sqrt((r1**2 + r2**2))
+        newR =(r1**3 + r2**3)**(1/3)
         positions[i] = newPos; speeds[i] = newSpeed; masses[i] = newM; radiuses[i] = newR
         masses[j] = radiuses[j] = 0
         return "fuse", j
@@ -240,9 +267,9 @@ SIZE_Y=800
 
 C = tkinter.Canvas(top, bg="white", height=SIZE_Y, width=SIZE_X)
 
-UPPER_X = -12*EARTH_RADIUS
+UPPER_X = -20*EARTH_RADIUS
 UPPER_Y = UPPER_X #Has to be a square
-BOTTOM_X = 8*EARTH_RADIUS
+BOTTOM_X = 20*EARTH_RADIUS
 BOTTOM_Y = BOTTOM_X
 
 def drawBalls(positions, speeds, radiuses, canvas):
@@ -287,44 +314,18 @@ C.pack()
 
 
 
-earthPositions, earthMasses, earthSpeeds, earthRadiuses = getPlanet(EARTH_RADIUS, 30, EARTH_MASS, 0.74, 0, [0, 0, 0], [0, 0, 0])
-
-nBallsTheia = int(THEIA_MASS/earthMasses[0])
-nBallsTheia = 10
-
-#earthMasses[0]=earthMasses[1]/2
-#earthRadiuses[0]=earthRadiuses[1]/2
-
-theiaPositions, theiaMasses, theiaSpeeds, theiaRadiuses = getPlanet(THEIA_RADIUS, nBallsTheia, THEIA_MASS, 0.74, 0, [-9*EARTH_RADIUS, 0, 0], [0, 0, 0])
-
+positions, masses, speeds, radiuses = getRingedPlanet(EARTH_RADIUS, 180, EARTH_MASS, THEIA_MASS ,EARTH_DENSITY/2, EARTH_RADIUS*10)
 counter=0
+#np.save("positions0", positions)
+#np.save("radiuses0", radiuses)
+DAMPING_REDUCTION = 1e35
 
-DAMPING_REDUCTION = 1e20
-
-while counter<1000:
+while counter<1000 or 1:
     counter+=1
-    drawBalls(earthPositions, earthSpeeds, earthRadiuses, C)
-    drawBalls(theiaPositions, theiaSpeeds, theiaRadiuses, C)
-    top.update_idletasks()
-    top.update()
-    earthPositions, earthSpeeds, earthMasses, earthRadiuses = iteration(earthPositions, earthSpeeds, earthMasses,earthRadiuses, 10)
-    theiaPositions, theiaSpeeds, theiaMasses, theiaRadiuses = iteration(theiaPositions, theiaSpeeds, theiaMasses,theiaRadiuses, 10)
-    C.delete("all")
-
-theiaSpeeds[:, 0]=28000
-DAMPING_REDUCTION = 1e38
-
-positions = appendNPArrayVectors(earthPositions, theiaPositions)
-speeds = appendNPArrayVectors(earthSpeeds, theiaSpeeds)
-masses = appendNPArray(earthMasses, theiaMasses)
-radiuses = appendNPArray(earthRadiuses, theiaRadiuses)
-
-
-while 1:
     drawBalls(positions, speeds, radiuses, C)
     top.update_idletasks()
     top.update()
-    positions, speeds, masses, radiuses = iteration(positions, speeds, masses, radiuses, 1)
+    positions, speeds, masses, radiuses = iteration(positions, speeds, masses, radiuses, 10)
     C.delete("all")
 
 
