@@ -9,8 +9,8 @@ THEIA_MASS = 6.417*1e23
 
 G = 6.673*1e-11 #gravitational constant
 REPULSIVE_G = -10*G #used when a sphere is inside another to ensure they don't get stuck
-FUSION_DAMPING = 1#Ratio of speed lost when particles fusion
-FUSION_POINT= 500 #If relative speed is inferior to that the 2 sphere fusion
+DAMPING_REDUCTION = 1e35#Ratio of speed lost when particles fusion
+FUSION_POINT = 0 #If relative speed is inferior to that the 2 sphere fusion
 REPULSIVE_ACCEL = -100
 
 def getPlanet(planetRadius, nBalls, planetMass, packingConstant, rotationSpeed, centerPoint, directionSpeed, ballRadius=None):
@@ -123,8 +123,9 @@ def computeCollision(positions, speeds, masses, radiuses, i, j):
         return fuseBalls(positions, speeds, masses, radiuses, i, j)
 
     
-    DAMPING_REDUCTION=1e12
-    energyLoss = np.max([0.5 ,np.exp(-totalK/DAMPING_REDUCTION)])
+    #DAMPING_REDUCTION=1e6
+    #damp = np.max([0.9 ,np.exp(-totalK/DAMPING_REDUCTION)])
+    energyLoss = np.max([0.9 ,np.exp(-totalK/DAMPING_REDUCTION)])
     damp = np.sqrt(energyLoss)
 
     speed1 -= addSpeed1
@@ -202,15 +203,11 @@ def handleUpdate(positions, speeds, newSpeeds, accelerations, masses, radiuses, 
         treated[secondBallIndex] = 1
         updateSpeedAndPos(positions, speeds, accelerations, newDt)
         elapsedTime += newDt
-        print(elapsedTime)
         action, index = computeCollision(positions, speeds, masses, radiuses, firstBallIndex, secondBallIndex)
         if action == "fuse":
             fused.append(index)
 
     updateSpeedAndPos(positions, speeds, accelerations, dt-elapsedTime)
-
-
-
 
     if len(fused)==0:
         pass
@@ -290,10 +287,10 @@ C.pack()
 
 
 
-earthPositions, earthMasses, earthSpeeds, earthRadiuses = getPlanet(EARTH_RADIUS, 20, EARTH_MASS, 0.74, 0, [0, 0, 0], [0, 0, 0])
+earthPositions, earthMasses, earthSpeeds, earthRadiuses = getPlanet(EARTH_RADIUS, 30, EARTH_MASS, 0.74, 0, [0, 0, 0], [0, 0, 0])
 
 nBallsTheia = int(THEIA_MASS/earthMasses[0])
-nBallsTheia =1
+nBallsTheia = 10
 
 #earthMasses[0]=earthMasses[1]/2
 #earthRadiuses[0]=earthRadiuses[1]/2
@@ -302,35 +299,32 @@ theiaPositions, theiaMasses, theiaSpeeds, theiaRadiuses = getPlanet(THEIA_RADIUS
 
 counter=0
 
-while counter<100000:
+DAMPING_REDUCTION = 1e20
+
+while counter<1000:
     counter+=1
     drawBalls(earthPositions, earthSpeeds, earthRadiuses, C)
     drawBalls(theiaPositions, theiaSpeeds, theiaRadiuses, C)
     top.update_idletasks()
     top.update()
-    earthPositions, earthSpeeds, earthMasses, earthRadiuses = iteration(earthPositions, earthSpeeds, earthMasses,earthRadiuses, 3)
-    #iteration(theiaPositions, theiaSpeeds, theiaMasses,theiaRadiuses, 3)
+    earthPositions, earthSpeeds, earthMasses, earthRadiuses = iteration(earthPositions, earthSpeeds, earthMasses,earthRadiuses, 10)
+    theiaPositions, theiaSpeeds, theiaMasses, theiaRadiuses = iteration(theiaPositions, theiaSpeeds, theiaMasses,theiaRadiuses, 10)
     C.delete("all")
 
-FUSION_DAMPING=0.98
+theiaSpeeds[:, 0]=28000
+DAMPING_REDUCTION = 1e38
 
-
-positions=[]
-masses=[]
-speeds=[]
-radiuses=[]
-
-positions.extend(earthPositions); positions.extend(theiaPositions)
-masses.extend(earthMasses); masses.extend(theiaMasses)
-speeds.extend(earthSpeeds); speeds.extend(theiaSpeeds)
-radiuses.extend(earthRadiuses); radiuses.extend(theiaRadiuses)
+positions = appendNPArrayVectors(earthPositions, theiaPositions)
+speeds = appendNPArrayVectors(earthSpeeds, theiaSpeeds)
+masses = appendNPArray(earthMasses, theiaMasses)
+radiuses = appendNPArray(earthRadiuses, theiaRadiuses)
 
 
 while 1:
     drawBalls(positions, speeds, radiuses, C)
     top.update_idletasks()
     top.update()
-    iteration(positions, speeds, masses, radiuses, 1)
+    positions, speeds, masses, radiuses = iteration(positions, speeds, masses, radiuses, 1)
     C.delete("all")
 
 
