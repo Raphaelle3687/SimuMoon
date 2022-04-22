@@ -5,19 +5,13 @@ N=100
 EARTH_RADIUS = 6.371*1e6 #radius in meters
 THEIA_RADIUS = 3.05*1e6
 EARTH_MASS = 5.972*1e24 #mass in kg
-THEIA_MASS = 6.417*1e24
+THEIA_MASS = 6.417*1e23
 
 G = 6.673*1e-11 #gravitational constant
 REPULSIVE_G = -10*G #used when a sphere is inside another to ensure they don't get stuck
-FUSION_DAMPING = 10#Ratio of speed lost when particles fusion
-DAMPING_COLLISION_DETECT = 3500 #Number of times the acceleration before we use damping
-BALL_RADIUS = None
-DAMPING_REDUCTION = 1e6
+FUSION_DAMPING = 1#Ratio of speed lost when particles fusion
+FUSION_POINT= 100 #If relative speed is inferior to that the 2 sphere fusion
 REPULSIVE_ACCEL = -100
-
-positions=[]
-masses=[]
-speeds=[]
 
 def getPlanet(planetRadius, nBalls, planetMass, packingConstant, rotationSpeed, centerPoint, directionSpeed, ballRadius=None):
     
@@ -32,13 +26,20 @@ def getPlanet(planetRadius, nBalls, planetMass, packingConstant, rotationSpeed, 
     positionsY = np.random.uniform(low=-limits+centerPoint[1], high=limits+centerPoint[1], size=[nBalls])
     positionsZ = np.random.uniform(low=-limits+centerPoint[2], high=limits+centerPoint[2], size=[nBalls])
     positions = np.zeros([nBalls, 3])
+    speeds = np.zeros([nBalls, 3])
+    #positions = []
+    #speeds = []
+    #for i in range(len(positionsX)):
+    #    positions.append(np.array([positionsX[i],positionsY[i], positionsZ[i]]))
+    #    speeds.append(np.zeros(3))
     positions[:, 0] = positionsX
     positions[:, 1] = positionsY
     positions[:, 2] = positionsZ
     masses = np.zeros(nBalls)+ballMass
-    speeds = np.zeros([nBalls, 3])
 
-    return positions, masses, speeds, ballRadius
+    radiuses = np.zeros(nBalls)+ballRadius
+
+    return positions, masses, speeds, radiuses
 
 def appendNPArray(arr1, arr2):
     newArray = np.zeros(len(arr1)+len(arr2))
@@ -52,51 +53,190 @@ def appendNPArrayVectors(arr1, arr2):
     newArray[len(arr1):, :]=arr2
     return newArray
 
-def pairInteraction(pos1, pos2, speed1, speed2, m1, m2, dt):
+
+def computeDeltas(positions, speeds, masses, radiuses, dt):
+    P = np.array(positions)
+    V = np.array(speeds)
+    M = np.array(masses)
+    deltaV = np.zeros(V.shape)
+    accels = np.zeros(P.shape)
+    mask = np.ones(len(P), dtype=np.bool)
+    for i in range(len(P)):
+        mask[i-1]=1
+        mask[i]=0
+        P1 = P[i]
+        r1 = radiuses[i]
+        dirs = (P-P1)[mask]
+        redRadiuses = radiuses[mask]
+        distances = np.linalg.norm(dirs, axis=1)
+        distances = np.where(distances > r1+redRadiuses, distances, r1+redRadiuses)
+        gees = G*M[mask]/distances**2
+        normals = dirs/distances.reshape(len(dirs), 1)
+        accelerations = gees.reshape(len(dirs), 1)*normals
+        g = np.sum(accelerations, axis=0)
+        deltaV[i] = g*dt
+        accels[i] = g
+    return deltaV, accels
+
+        
+
+
+def pairInteraction(positions, speeds, masses, radiuses, i, j, dt):
+
+    pos1, pos2 = positions[i], positions[j]
+    speed1, speed2 = speeds[i], speeds[j]
+    m1, m2 = masses[i], masses[j]
+    r1, r2 = radiuses[i], radiuses[j]
 
     distance = pos2-pos1
     normDistance = np.linalg.norm(distance)
     normal1 = (distance)/normDistance
     damping = 1
     relativeSpeedNorm = np.linalg.norm(speed2-speed1)
-    if normDistance > 2*BALL_RADIUS:
+    if normDistance > r1+r2:
         g2 = G*m1/(normDistance**2)
         g1=g2*(m2/m1)
     else:
+        damping=FUSION_DAMPING
         g1=REPULSIVE_ACCEL
         g2=g1
-        if relativeSpeedNorm > DAMPING_COLLISION_DETECT:
-            damping=FUSION_DAMPING
+        if relativeSpeedNorm > FUSION_POINT:
+            pass
+        else:
+            newM = m1+m2
+            newPos = (m1/(newM))*pos1 + (m2/(newM))*pos2
+            newSpeed = (m1/(newM))*speed1 + (m2/(newM))*speed2
+            newR = np.sqrt((r1**2 + r2**2))
+            positions.pop(j); speeds.pop(j), masses.pop(j); radiuses.pop(j)
+            positions[i] = newPos; speeds[i] = newSpeed; masses[i] = newM; radiuses[i] = newR
+            return
+
     
     speed1 += dt*g1*(normal1)
     speed2 += dt*g2*(-normal1)
-    print(damping)
     speed1*=damping
     speed2*=damping
     pos1 += speed1*dt
     pos2 += speed2*dt
-    return pos1, pos2, speed1, speed2
+    positions[i], positions[j], speeds[i], speeds[j] = pos1, pos2, speed1, speed2
 
 
-def iteration(positions, speeds, masses, dt):
+def computeCollision(positions, speeds, masses, i, j):
 
-    mask=np.ones(len(positions))
+    pos1 = positions[i]
+    pos2 = positions[j]
+    speed1 = speeds[i]
+    speed2 = speeds[j]
+    m1 = masses[i]
+    m2 = masses[j]
+
+    check1 = np.dot(speed1, speed2)
+    normal1 = (pos2-pos1)/np.linalg.norm(pos2-pos1)
+    normal2 = -normal1
+    checkSpeed1 = np.dot(speed1, normal1)
+    checkSpeed2 = np.dot(speed2, normal2)
+
+    addSpeed1 = (2*m1/(m1+m2))*checkSpeed1*normal1
+    addSpeed2 = (2*m2/(m1+m2))*checkSpeed2*normal2
+
+
+    if check1 < 0 and checkSpeed1 < 0:
+        return
+
+    speedDiff = speed2-speed1
+    speedNorm = np.linalg.norm(speedDiff)
+
+    
+    DAMPING_REDUCTION=1e6
+    damp = np.max([0.9 ,np.exp(-speedNorm/DAMPING_REDUCTION)])
+    
+    speed1 -= addSpeed1
+    speed1 += addSpeed2
+    speed2 += addSpeed1
+    speed2 -=addSpeed2
+    speed1 = damp*speed1
+    speed2 = damp*speed2
+    speeds[i] = speed1
+    speeds[j] = speed2
+
+
+def solveCollision(p1, p2, v1, v2, r1, r2, dt):
+    #d=p2-p1
+    c = deg0Term = (p2[0]-p1[0])**2 + (p2[1]-p1[1])**2 +  (p2[2]-p1[2])**2 - (r1+r2)**2
+    b = deg1Term = 2*(p2[0]-p1[0])*(v2[0]-v1[0]) + 2*(p2[1]-p1[1])*(v2[1]-v1[1]) + 2*(p2[2]-p1[2])*(v2[2]-v1[2])
+    a = deg2Term = (v2[0]-v1[0])**2 + (v2[1]-v1[1])**2 + (v2[2]-v1[2])**2
+
+    delta = b**2 - 4*a*c
+
+    if delta<0:
+        return None
+    sqrtDelta = np.sqrt(delta)
+    x1 = (-b -sqrtDelta)/(2*a)
+    x2 = (-b +sqrtDelta)/(2*a)
+
+    x1Valid = not (x1 > dt or x1 < 0)
+    x2Valid = not (x2 > dt or x2 < 0)
+    
+    if x1Valid and x2Valid:
+        return np.min([x1, x2])
+    elif x1Valid and not x2Valid:
+        return x1
+    elif x2Valid and not x1Valid:
+        return x2
+    else:
+        return None
+    
+
+def updateSpeedAndPos(positions, speeds, A, dt):
+    speeds += A*dt
+    positions += speeds*dt + A * dt**2
+
+def handleUpdate(positions, speeds, newSpeeds, accelerations, masses, radiuses, dt):
+    
+    collisionsRoots=[]
+    collisionsIndexes=[]
+    hasBeenTreated = np.identity(len(positions))
 
     for i in range(len(positions)):
-        mask[i]=0
         for j in range(len(positions)):
-            if mask[j]!=0:
+            if hasBeenTreated[i, j]==1:
+                continue
+            hasBeenTreated[i, j]=1
+            root = solveCollision(positions[i], positions[j], newSpeeds[i], newSpeeds[j], radiuses[i], radiuses[j], dt)
+            if root is not None:
+                collisionsRoots.append(root)
+                collisionsIndexes.append([i, j])
 
-                positions[i], positions[j], speeds[i], speeds[j] = \
-                    pairInteraction(positions[i], positions[j], speeds[i], speeds[j], masses[i], masses[j], dt)
+    sortedIndexes = np.argsort(collisionsRoots)
+    elapsedTime = 0
+    treated = np.zeros(len(positions))
+    for i in range(len(collisionsRoots)):
+        index = sortedIndexes[i]
+        newDt = collisionsRoots[index]-elapsedTime
+        firstBallIndex = collisionsIndexes[index][0]
+        secondBallIndex = collisionsIndexes[index][1]
+        if treated[firstBallIndex] == 1 or treated[secondBallIndex] == 1:
+            continue
+        treated[firstBallIndex] = 1 
+        treated[secondBallIndex] = 1
+        updateSpeedAndPos(positions, speeds, accelerations, newDt)
+        elapsedTime += newDt
+        print(elapsedTime)
+        computeCollision(positions, speeds, masses, firstBallIndex, secondBallIndex)
+
+    
+
+    updateSpeedAndPos(positions, speeds, accelerations, dt-elapsedTime)
+
+def iteration(positions, speeds, masses, radiuses, dt):
+    mask=np.ones(len(positions))
+    V = np.array(speeds)
+    dV, A = computeDeltas(positions, speeds, masses, radiuses, dt)
+    newSpeeds = np.zeros(V.shape)
+    newSpeeds = speeds + dV
+    handleUpdate(positions, speeds, newSpeeds, A, masses, radiuses, dt)
+
                 
-
-        
-
-#for i in range(0, 2000):
-#    distance = np.sqrt(np.sum((positions[0]-positions[1])**2))
-#    print(distance, BALL_RADIUS*2, BALL_RADIUS)
-#    iteration(positions, speeds, masses, 5)
 
 import tkinter
 
@@ -112,7 +252,7 @@ UPPER_Y = UPPER_X #Has to be a square
 BOTTOM_X = 8*EARTH_RADIUS
 BOTTOM_Y = BOTTOM_X
 
-def drawBalls(positions, speeds, canvas):
+def drawBalls(positions, speeds, radiuses, canvas):
 
     for i, pos in enumerate(positions):
         
@@ -121,7 +261,7 @@ def drawBalls(positions, speeds, canvas):
         #this is the center of the bawl
         planeX = ( (posX - UPPER_X)/(BOTTOM_X-UPPER_X) )*SIZE_X
         planeY = ( (posY - UPPER_Y)/(BOTTOM_Y-UPPER_Y) )*SIZE_Y
-        planeRadius = (BALL_RADIUS /(BOTTOM_X-UPPER_X))*SIZE_X
+        planeRadius = (radiuses[i] /(BOTTOM_X-UPPER_X))*SIZE_X
 
         x1 = planeX-planeRadius
         x2 = planeX+planeRadius
@@ -144,7 +284,7 @@ def drawBalls(positions, speeds, canvas):
         #canvas.create_line(planeX, planeY, planeX+xLine, planeY+yLine, fill=color, width=5)
 
 
-drawBalls(positions, speeds, C)
+#drawBalls(positions, speeds, radiuses, C)
 
 C.pack()
 
@@ -152,41 +292,51 @@ C.pack()
 #speeds[1, 0]=-3000
 
 
-earthPositions, earthMasses, earthSpeeds, BALL_RADIUS = getPlanet(EARTH_RADIUS, 10, EARTH_MASS, 0.74, 0, [0, 0, 0], [0, 0, 0])
+
+
+earthPositions, earthMasses, earthSpeeds, earthRadiuses = getPlanet(EARTH_RADIUS, 2, EARTH_MASS, 0.74, 0, [0, 0, 0], [0, 0, 0])
 
 nBallsTheia = int(THEIA_MASS/earthMasses[0])
+nBallsTheia =1
 
-theiaPositions, theiaMasses, theiaSpeeds, BALL_RADIUS = getPlanet(THEIA_RADIUS, nBallsTheia, THEIA_MASS, 0.74, 0, [-9*EARTH_RADIUS, 0, 0], [0, 0, 0])
+#earthMasses[0]=earthMasses[1]/2
+earthRadiuses[0]=earthRadiuses[1]/2
+
+theiaPositions, theiaMasses, theiaSpeeds, theiaRadiuses = getPlanet(THEIA_RADIUS, nBallsTheia, THEIA_MASS, 0.74, 0, [-9*EARTH_RADIUS, 0, 0], [0, 0, 0])
 
 FUSION_DAMPING=0.02
 
 counter=0
 
-while counter<1000:
+while counter<10000:
     counter+=1
-    drawBalls(earthPositions, earthSpeeds, C)
-    drawBalls(theiaPositions, theiaSpeeds, C)
+    drawBalls(earthPositions, earthSpeeds, earthRadiuses, C)
+    drawBalls(theiaPositions, theiaSpeeds, theiaRadiuses, C)
     top.update_idletasks()
     top.update()
-    iteration(earthPositions, earthSpeeds, earthMasses, 1)
-    iteration(theiaPositions, theiaSpeeds, theiaMasses, 3)
+    iteration(earthPositions, earthSpeeds, earthMasses,earthRadiuses, 3)
+    iteration(theiaPositions, theiaSpeeds, theiaMasses,theiaRadiuses, 3)
     C.delete("all")
 
 FUSION_DAMPING=0.98
 
-positions = earthPositions
-masses = earthMasses
-speeds = earthSpeeds
 
-positions = appendNPArrayVectors(positions, theiaPositions)
-masses = appendNPArray(masses, theiaMasses)
-speeds = appendNPArrayVectors(speeds, theiaSpeeds)
+positions=[]
+masses=[]
+speeds=[]
+radiuses=[]
+
+positions.extend(earthPositions); positions.extend(theiaPositions)
+masses.extend(earthMasses); masses.extend(theiaMasses)
+speeds.extend(earthSpeeds); speeds.extend(theiaSpeeds)
+radiuses.extend(earthRadiuses); radiuses.extend(theiaRadiuses)
+
 
 while 1:
-    drawBalls(positions, speeds, C)
+    drawBalls(positions, speeds, radiuses, C)
     top.update_idletasks()
     top.update()
-    iteration(positions, speeds, masses, 0.1)
+    iteration(positions, speeds, masses, radiuses, 1)
     C.delete("all")
 
 
