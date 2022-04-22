@@ -10,7 +10,7 @@ THEIA_MASS = 6.417*1e23
 G = 6.673*1e-11 #gravitational constant
 REPULSIVE_G = -10*G #used when a sphere is inside another to ensure they don't get stuck
 FUSION_DAMPING = 1#Ratio of speed lost when particles fusion
-FUSION_POINT= 2000 #If relative speed is inferior to that the 2 sphere fusion
+FUSION_POINT= 500 #If relative speed is inferior to that the 2 sphere fusion
 REPULSIVE_ACCEL = -100
 
 def getPlanet(planetRadius, nBalls, planetMass, packingConstant, rotationSpeed, centerPoint, directionSpeed, ballRadius=None):
@@ -78,6 +78,19 @@ def computeDeltas(positions, speeds, masses, radiuses, dt):
         accels[i] = g
     return deltaV, accels
 
+def fuseBalls(positions, speeds, masses, radiuses, i, j):
+
+        pos1, pos2, speed1, speed2, m1, m2, r1, r2 =\
+            positions[i], positions[j], speeds[i], speeds[j], masses[i], masses[j], radiuses[i], radiuses[j]
+
+        newM = m1+m2
+        newPos = (m1/(newM))*pos1 + (m2/(newM))*pos2
+        newSpeed = (m1/(newM))*speed1 + (m2/(newM))*speed2
+        newR = np.sqrt((r1**2 + r2**2))
+        positions[i] = newPos; speeds[i] = newSpeed; masses[i] = newM; radiuses[i] = newR
+        masses[j] = radiuses[j] = 0
+        return "fuse", j
+
 
 def computeCollision(positions, speeds, masses, radiuses, i, j):
 
@@ -92,11 +105,13 @@ def computeCollision(positions, speeds, masses, radiuses, i, j):
     normal1 = (pos2-pos1)/np.linalg.norm(pos2-pos1)
     normal2 = -normal1
     checkSpeed1 = np.dot(speed1, normal1)
-    checkSpeed2 = np.dot(speed2, normal2)
 
-    addSpeed1 = checkSpeed1*normal1
-    addSpeed2 = checkSpeed2*normal2
+    K1 = m1*np.dot(speed1, speed1)
+    K2 = m2*np.dot(speed2, speed2)
+    totalK = K1 + K2
 
+    addSpeed1 = (2*m2/(m1+m2))*(np.dot(speed1-speed2, normal2)*(normal2))/(np.linalg.norm(normal2)**2)
+    addSpeed2 = (2*m1/(m1+m2))*(np.dot(speed2-speed1, normal1)*(normal1))/(np.linalg.norm(normal1)**2)
 
     if check1 < 0 and checkSpeed1 < 0:
         return "nothing", 0
@@ -105,24 +120,15 @@ def computeCollision(positions, speeds, masses, radiuses, i, j):
     speedNorm = np.linalg.norm(speedDiff)
 
     if speedNorm < FUSION_POINT:
-        r1=radiuses[i]
-        r2=radiuses[j]
-        newM = m1+m2
-        newPos = (m1/(newM))*pos1 + (m2/(newM))*pos2
-        newSpeed = (m1/(newM))*speed1 + (m2/(newM))*speed2
-        newR = np.sqrt((r1**2 + r2**2))
-        positions[i] = newPos; speeds[i] = newSpeed; masses[i] = newM; radiuses[i] = newR
-        masses[j] = radiuses[j] = 0
-        return "fuse", j
+        return fuseBalls(positions, speeds, masses, radiuses, i, j)
 
     
-    DAMPING_REDUCTION=1e6
-    damp = np.max([0.9 ,np.exp(-speedNorm/DAMPING_REDUCTION)])
-    
+    DAMPING_REDUCTION=1e12
+    energyLoss = np.max([0.5 ,np.exp(-totalK/DAMPING_REDUCTION)])
+    damp = np.sqrt(energyLoss)
+
     speed1 -= addSpeed1
-    speed1 += addSpeed2
-    speed2 += addSpeed1
-    speed2 -=addSpeed2
+    speed2 -= addSpeed2
     speed1 = damp*speed1
     speed2 = damp*speed2
     speeds[i] = speed1
@@ -131,7 +137,9 @@ def computeCollision(positions, speeds, masses, radiuses, i, j):
 
 
 def solveCollision(p1, p2, v1, v2, r1, r2, dt):
-    #d=p2-p1
+    d=np.linalg.norm(p2-p1)
+    if d < r1+r2:
+        return 0
     c = deg0Term = (p2[0]-p1[0])**2 + (p2[1]-p1[1])**2 +  (p2[2]-p1[2])**2 - (r1+r2)**2
     b = deg1Term = 2*(p2[0]-p1[0])*(v2[0]-v1[0]) + 2*(p2[1]-p1[1])*(v2[1]-v1[1]) + 2*(p2[2]-p1[2])*(v2[2]-v1[2])
     a = deg2Term = (v2[0]-v1[0])**2 + (v2[1]-v1[1])**2 + (v2[2]-v1[2])**2
@@ -200,6 +208,8 @@ def handleUpdate(positions, speeds, newSpeeds, accelerations, masses, radiuses, 
             fused.append(index)
 
     updateSpeedAndPos(positions, speeds, accelerations, dt-elapsedTime)
+
+
 
 
     if len(fused)==0:
@@ -280,7 +290,7 @@ C.pack()
 
 
 
-earthPositions, earthMasses, earthSpeeds, earthRadiuses = getPlanet(EARTH_RADIUS, 3, EARTH_MASS, 0.74, 0, [0, 0, 0], [0, 0, 0])
+earthPositions, earthMasses, earthSpeeds, earthRadiuses = getPlanet(EARTH_RADIUS, 20, EARTH_MASS, 0.74, 0, [0, 0, 0], [0, 0, 0])
 
 nBallsTheia = int(THEIA_MASS/earthMasses[0])
 nBallsTheia =1
