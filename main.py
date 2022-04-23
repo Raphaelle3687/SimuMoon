@@ -1,5 +1,6 @@
 import numpy as np
 import time
+import threading
 N=100
 
 EARTH_RADIUS = 6.371*1e6 #radius in meters
@@ -58,7 +59,7 @@ def getRingedPlanet(bodyRadius, nBodies, bodyMass, ringMass, ringBodiesDensity, 
     volumes = masses[1:]/ringBodiesDensity
     radiuses[1:] = np.power(volumes/((4/3)*np.pi), 1/3)
 
-    distances = np.random.uniform(low=0.8*orbitingRadius, high=1.2*orbitingRadius, size=nBodies)
+    distances = np.random.uniform(low=0.7*orbitingRadius, high=1.3*orbitingRadius, size=nBodies)
     orbitalSpeeds = np.sqrt((G*bodyMass)/distances)
     angles1 = np.random.uniform(low=0, high=2*np.pi, size=nBodies)
     positions[1:, 0] = distances*np.cos(angles1)
@@ -303,30 +304,38 @@ def drawBalls(positions, speeds, radiuses, canvas):
 
         #canvas.create_line(planeX, planeY, planeX+xLine, planeY+yLine, fill=color, width=5)
 
-
-#drawBalls(positions, speeds, radiuses, C)
-
 C.pack()
 
-#speeds[0, 0]=-5000
-#speeds[1, 0]=-3000
+def saveData(positions, radiuses, index):
+    np.save("data/positions"+str(index), positions)
+    np.save("data/radiuses"+str(index), radiuses)
 
+def runEarthRing():
 
+    positions, masses, speeds, radiuses = getRingedPlanet(EARTH_RADIUS, 250, EARTH_MASS, THEIA_MASS ,EARTH_DENSITY/2, EARTH_RADIUS*10)
+    counter=0
+    #np.save("positions0", positions)
+    #np.save("radiuses0", radiuses)
+    DAMPING_REDUCTION = 1e35
+    saveCounter = 0
+    saveIndex =0
+    t=threading.Thread(target=print, args=["debut"])
+    t.start()
+    while counter<100000:
 
+        if saveCounter%5==0:
+            t.join()
+            args=[positions, radiuses, saveIndex]
+            saveCounter=0
+            saveIndex+=1
+            t = threading.Thread(target=saveData, args=args)
+            t.start()
+        saveCounter+=1
+        counter+=1
+        #drawBalls(positions, speeds, radiuses, C)
+        #top.update_idletasks()
+        #top.update()
+        positions, speeds, masses, radiuses = iteration(positions, speeds, masses, radiuses, 4)
+        #C.delete("all")
 
-positions, masses, speeds, radiuses = getRingedPlanet(EARTH_RADIUS, 180, EARTH_MASS, THEIA_MASS ,EARTH_DENSITY/2, EARTH_RADIUS*10)
-counter=0
-#np.save("positions0", positions)
-#np.save("radiuses0", radiuses)
-DAMPING_REDUCTION = 1e35
-
-while counter<1000 or 1:
-    counter+=1
-    drawBalls(positions, speeds, radiuses, C)
-    top.update_idletasks()
-    top.update()
-    positions, speeds, masses, radiuses = iteration(positions, speeds, masses, radiuses, 10)
-    C.delete("all")
-
-
-
+runEarthRing()

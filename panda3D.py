@@ -2,7 +2,7 @@ from math import cos, sin, pi
 import imageio # install imageio: pip install imageio
 from panda3d_viewer import Viewer, ViewerConfig
 import numpy as np
-from main import EARTH_RADIUS
+EARTH_RADIUS = 6.371*1e6 #radius in meters
 
 config = ViewerConfig()
 config.set_window_size(1000, 1000)
@@ -18,14 +18,19 @@ viewer.set_background_color((0, 0, 0))
 #viewer.enable_lights( False)
 #viewer.enable_light(1, True)
 
-positions = np.load("positions0.npy")
-radiuses = np.load("radiuses0.npy")
+nFiles = 150
 
-positionsArrays = [positions]
-radiusesArrays = [radiuses]
 
-positions/=EARTH_RADIUS
-radiuses/=EARTH_RADIUS
+positionsArrays = []
+radiusesArrays = []
+
+for i in range(nFiles):
+    positions=np.load("data/positions"+str(i)+".npy")
+    radiuses=np.load("data/radiuses"+str(i)+".npy")
+    positions/=EARTH_RADIUS
+    radiuses/=EARTH_RADIUS
+    positionsArrays.append(positions)
+    radiusesArrays.append(radiuses)
 
 def redoGroup(positions, radiuses, redo=False):
     if redo:
@@ -51,9 +56,9 @@ with imageio.get_writer('sphere_anim.gif', mode='I') as writer:
 
     image_rgb = viewer.get_screenshot(requested_format='RGB')
     writer.append_data(image_rgb)
-    
+
     for i in range(1, len(positionsArrays)):
-        redoGroup(positions[i], radiuses[i], redo=True)
+        redoGroup(positionsArrays[i], radiusesArrays[i], redo=True)
         image_rgb = viewer.get_screenshot(requested_format='RGB')
         writer.append_data(image_rgb)
         
